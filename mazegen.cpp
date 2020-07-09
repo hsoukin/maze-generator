@@ -10,9 +10,6 @@
 #define OLC_PGE_APPLICATION
 #include "olcPixelGameEngine.h"
 
-const int DIM = 60; // maze dimensions for your nightmare fuel
-
-
 // I use bitwise operators to work out which direction to pick
 // as I feel it streamlines the process. Also wanted to be fancy
 enum Cardinal : uint8_t
@@ -61,28 +58,28 @@ struct Cell
 
 
     // direction is used to draw over the wall of the cell traveling *to*
-    void DrawSelf(olc::PixelGameEngine* pge, Cardinal direction)
+    void DrawSelf(olc::PixelGameEngine* pge, Cardinal direction, olc::Pixel color = olc::GREEN)
     {
         {
             int x = this->x * (3+1); // pixels per square + border gap
             int y = this->y * (3+1); // = x*3 ( square ) + x*1 ( gap )
 
-            pge->FillRect(x, y, 3, 3, olc::GREEN);
+            pge->FillRect(x, y, 3, 3, color);
 
             // now clear the border where moving to
             switch(direction)
             {
                 case Cardinal::N:
-                    pge->DrawLine(x, y-1, x+2, y-1, olc::GREEN);
+                    pge->DrawLine(x, y-1, x+2, y-1, color);
                     break;
                 case Cardinal::E:
-                    pge->DrawLine(x+3, y, x+3, y+2, olc::GREEN);
+                    pge->DrawLine(x+3, y, x+3, y+2, color);
                     break;
                 case Cardinal::W:
-                    pge->DrawLine(x-1, y, x-1, y+2, olc::GREEN);
+                    pge->DrawLine(x-1, y, x-1, y+2, color);
                     break;
                 case Cardinal::S:
-                    pge->DrawLine(x, y+3, x+2, y+3, olc::GREEN);
+                    pge->DrawLine(x, y+3, x+2, y+3, color);
                     break;
                 default:
                     break;
@@ -95,10 +92,20 @@ struct Cell
 class MazeGen : public olc::PixelGameEngine
 {
 private:
-    Cell grid[DIM*DIM];        // i hate matrixes
+    const int WIDTH;
+    const int HEIGHT;
+
+    // grid = array;
+    Cell *grid;                // i hate matrixes
     std::stack<Cell*> history; // contains a history of visited cells
 
 public:
+    MazeGen(const int &width, const int &height)
+        : WIDTH(width), HEIGHT(height), grid(new Cell[width * height])
+    {
+        sAppName = "Maze Generator";
+    }
+
     bool OnUserCreate() override 
     {
         Clear(olc::VERY_DARK_BLUE);
@@ -115,26 +122,26 @@ public:
 
         // i miss python list comprehensions. anyways,
         // this sets the boundaries for the outmost cells of the grid
-        for(int y = 0; y < DIM; y++)
-            for(int x = 0; x < DIM; x++)
+        for(int y = 0; y < HEIGHT; y++)
+            for(int x = 0; x < WIDTH; x++)
             {
-                Cell& cell = grid[y * DIM + x];
+                Cell& cell = grid[y * WIDTH + x];
                 cell.x = x;
                 cell.y = y;
 
                 if(x == 0)
                     cell.bounds |= Cardinal::W;
-                else if(x == DIM-1)
+                else if(x == WIDTH-1)
                     cell.bounds |= Cardinal::E;
                 if(y == 0)
                     cell.bounds |= Cardinal::N;
-                else if(y == DIM-1)
+                else if(y == HEIGHT-1)
                     cell.bounds |= Cardinal::S;
             }
 
-        // we then set cell (0, 0), aka cell 0, as the first visited cell.
-        history.push(&grid[0]);
+        // we then pick a random starting cell.
         srand(time(NULL));
+        history.push(&grid[ rand() % WIDTH*HEIGHT ]);
 
         return true;
     }
@@ -146,21 +153,22 @@ public:
         {
             // i'm using references to trim down the code and indexing
             Cell &current = *history.top();
+
             int x = current.x;
             int y = current.y;
 
             current.visited = true;
-            int pos = y * DIM + x;
+            int pos = y * WIDTH + x;
 
             // checks all neighbours to determine whether they've been visited before
             uint8_t visited_list = 0b0000;
-            if(y != 0 && grid[pos - DIM].visited)
+            if(y != 0 && grid[pos - WIDTH].visited)
                 visited_list |= Cardinal::N;
             if(x != 0 && grid[pos-1].visited)
                 visited_list |= Cardinal::W;
-            if(x != DIM-1 && grid[pos+1].visited)
+            if(x != WIDTH-1 && grid[pos+1].visited)
                 visited_list |= Cardinal::E;
-            if(y != DIM-1 && grid[pos + DIM].visited)
+            if(y != HEIGHT-1 && grid[pos + WIDTH].visited)
                 visited_list |= Cardinal::S;
 
             // out of the pool of available directions to go to, picks one at random (sort of)
@@ -178,11 +186,11 @@ public:
 
                 case Cardinal::N:
                     grid[pos].bounds &= ~Cardinal::N;
-                    grid[pos - DIM].bounds &= ~Cardinal::S; 
+                    grid[pos - WIDTH].bounds &= ~Cardinal::S; 
 
                     grid[pos].DrawSelf(this, toGo);
 
-                    history.push(&grid[pos - DIM]);
+                    history.push(&grid[pos - WIDTH]);
                     break;
                 
                 case Cardinal::E:
@@ -205,11 +213,11 @@ public:
                 
                 case Cardinal::S:
                     grid[pos].bounds &= ~Cardinal::S;
-                    grid[pos + DIM].bounds &= ~Cardinal::N;
+                    grid[pos + WIDTH].bounds &= ~Cardinal::N;
 
                     grid[pos].DrawSelf(this, toGo);
 
-                    history.push(&grid[pos + DIM]);
+                    history.push(&grid[pos + WIDTH]);
                     break;
                 
                 // i remember not being able to compile on code::blocks
@@ -217,6 +225,9 @@ public:
                 default:
                     break;
             }
+
+            if(!history.empty())
+                history.top()->DrawSelf(this, Cardinal::NONE, olc::RED);
         }
         
         // quit if the user presses Enter at any point during the process
@@ -227,15 +238,27 @@ public:
     
     // no need for this but i kept it in because you never know
     bool OnUserDestroy() override
-    { 
+    {
+        delete[] grid;
         return true; 
     }
 };
 
 int main()
 {
-    MazeGen window; // each one cell is three by three, with a one by three border
-    if(window.Construct(DIM*3 + DIM - 1, DIM*3 + DIM - 1, 3, 3))
+    int width, height;
+
+    do {
+        std::cout << "Please insert the width and height of the generated maze,\n"
+                  << "separated by spaces, then hit Enter: ";
+        std::cin  >> width >> height;
+
+        if(width <= 0 || height <= 0)
+            std::cout << "Please insert valid dimensions for the maze.\n\n";
+    } while(width <= 0 || height <= 0);
+
+    MazeGen window(width, height); // each one cell is three by three, with a one by three border
+    if(window.Construct(width*3 + width-1, height*3 + height-1, 3, 3))
         window.Start();
 
     return 0;
